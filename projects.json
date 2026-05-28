@@ -1,0 +1,22 @@
+{
+  "dailybite": {
+    "keywords": ["dailybite", "migros", "combino", "snack", "expo", "supabase"],
+    "description": "DailyBite React Native app"
+  },
+  "homelab": {
+    "keywords": ["proxmox", "lxc", "homeserver", "n8n", "home assistant", "raspberry", "cloudflare", "selfhost"],
+    "description": "Home Server and self-hosted infra"
+  },
+  "swisscom": {
+    "keywords": ["nexcc", "iapc", "aws", "nex", "swisscom", "devops", "pipeline", "ci/cd"],
+    "description": "Swisscom NexCC DevOps"
+  },
+  "aeternum": {
+    "keywords": ["aeternum", "driveflow", "client", "dach", "portfolio"],
+    "description": "Aeternum Software"
+  },
+  "bbzw": {
+    "keywords": ["bbzw", "m426", "abu", "schule", "lesetagebuch", "efz", "lernziel"],
+    "description": "BBZW Schule"
+  }
+}

@@ -1,0 +1,15 @@
+services:
+  memory-server:
+    build: .
+    image: memory-server:latest
+    container_name: memory-server
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - MCP_TOKEN=${MCP_TOKEN}
+      - DB_PATH=/app/data/memory.db
+      - PROJECTS_PATH=/app/projects.json
+    volumes:
+      - ./data:/app/data
