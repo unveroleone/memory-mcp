@@ -2,3 +2,5 @@ node_modules/
 dist/
 data/
 .env
+.mcp.json
+mcp-memory-server-handoff.md
