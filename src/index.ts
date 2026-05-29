@@ -12,6 +12,7 @@ import {
   deleteMemory,
   searchMemoriesWithCount,
   getProjectStats,
+  getStats,
   type Memory as DbMemory,
 } from "./db.js";
 
@@ -145,6 +146,15 @@ async function startHttpServer(): Promise<void> {
       const deleted = deleteMemory(req.params.id);
       if (!deleted) return res.status(404).json({ error: "Not found" });
       res.status(204).send();
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  app.get("/api/stats", (req, res) => {
+    if (!checkAuth(req, res)) return;
+    try {
+      res.json(getStats());
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }

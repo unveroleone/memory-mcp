@@ -6,7 +6,9 @@ import { detectProject, loadProjects } from "../projects.js";
 export const addMemorySchema = z.object({
   text: z.string().min(1),
   project: z.string().optional(),
-  source: z.string().optional(),
+  source: z.string().describe(
+    "Identifier of the AI agent or tool writing this memory. Use your own name: 'claude-code', 'copilot', 'warp', 'cursor', 'gemini', 'chatgpt', or 'dashboard'. Always set this."
+  ),
   tags: z.array(z.string()).optional().describe("Topic tags, e.g. ['architecture', 'auth', 'supabase']"),
   metadata: z.record(z.unknown()).optional(),
 });

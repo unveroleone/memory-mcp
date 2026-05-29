@@ -266,6 +266,44 @@ export function getProjectStats(): ProjectStat[] {
   });
 }
 
+export interface StatsData {
+  total: number;
+  by_source: { source: string; count: number }[];
+  by_day: { date: string; count: number }[];
+  top_tags: { tag: string; count: number }[];
+}
+
+export function getStats(): StatsData {
+  const total = (db.prepare(`SELECT COUNT(*) as n FROM memories`).get() as { n: number }).n;
+
+  const by_source = db.prepare(`
+    SELECT COALESCE(source, 'unknown') as source, COUNT(*) as count
+    FROM memories
+    GROUP BY source
+    ORDER BY count DESC
+  `).all() as { source: string; count: number }[];
+
+  const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  const by_day = db.prepare(`
+    SELECT date(created_at / 1000, 'unixepoch') as date, COUNT(*) as count
+    FROM memories
+    WHERE created_at > ?
+    GROUP BY date
+    ORDER BY date ASC
+  `).all(thirtyDaysAgo) as { date: string; count: number }[];
+
+  const top_tags = db.prepare(`
+    SELECT j.value as tag, COUNT(*) as count
+    FROM memories m, json_each(m.tags) j
+    WHERE m.tags IS NOT NULL
+    GROUP BY j.value
+    ORDER BY count DESC
+    LIMIT 15
+  `).all() as { tag: string; count: number }[];
+
+  return { total, by_source, by_day, top_tags };
+}
+
 export function searchMemoriesWithCount(params: {
   query: string;
   project?: string;
