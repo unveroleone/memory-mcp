@@ -219,3 +219,80 @@ export function countByProject(): Record<string, number> {
 
   return Object.fromEntries(rows.map((r) => [r.project ?? "untagged", r.count]));
 }
+
+export function countMemories(params: {
+  project?: string;
+  tag?: string;
+}): number {
+  let sql = `SELECT COUNT(*) as n FROM memories WHERE 1=1`;
+  const bindings: (string | number)[] = [];
+  if (params.project) { sql += ` AND project = ?`; bindings.push(params.project); }
+  if (params.tag) { sql += ` AND EXISTS (SELECT 1 FROM json_each(tags) WHERE value = ?)`; bindings.push(params.tag); }
+  const row = db.prepare(sql).get(...bindings) as { n: number };
+  return row.n;
+}
+
+export interface ProjectStat {
+  name: string;
+  count: number;
+  tags: string[];
+  last_updated: number | null;
+}
+
+export function getProjectStats(): ProjectStat[] {
+  const rows = db.prepare(`
+    SELECT
+      project AS name,
+      COUNT(*) AS count,
+      MAX(updated_at) AS last_updated,
+      GROUP_CONCAT(tags) AS all_tags
+    FROM memories
+    WHERE project IS NOT NULL
+    GROUP BY project
+    ORDER BY last_updated DESC
+  `).all() as { name: string; count: number; last_updated: number | null; all_tags: string | null }[];
+
+  return rows.map((r) => {
+    const tagSet = new Set<string>();
+    if (r.all_tags) {
+      for (const chunk of r.all_tags.split(",")) {
+        try {
+          const parsed = JSON.parse(chunk);
+          if (Array.isArray(parsed)) parsed.forEach((t: string) => tagSet.add(t));
+        } catch { /* skip */ }
+      }
+    }
+    return { name: r.name, count: r.count, tags: [...tagSet].slice(0, 20), last_updated: r.last_updated };
+  });
+}
+
+export function searchMemoriesWithCount(params: {
+  query: string;
+  project?: string;
+  tag?: string;
+  limit?: number;
+  offset?: number;
+}): { memories: Memory[]; total: number } {
+  const limit = Math.min(params.limit ?? 30, 100);
+  const offset = params.offset ?? 0;
+  const safeQuery = `"${params.query.replace(/"/g, "")}"`;
+
+  let sql = `
+    SELECT m.*
+    FROM memories_fts f
+    JOIN memories m ON m.rowid = f.rowid
+    WHERE memories_fts MATCH ?
+  `;
+  const bindings: (string | number)[] = [safeQuery];
+
+  if (params.project) { sql += ` AND m.project = ?`; bindings.push(params.project); }
+  if (params.tag) { sql += ` AND EXISTS (SELECT 1 FROM json_each(m.tags) WHERE value = ?)`; bindings.push(params.tag); }
+
+  const countSql = `SELECT COUNT(*) as n FROM (${sql}) t`;
+  const total = (db.prepare(countSql).get(...bindings) as { n: number }).n;
+
+  sql += ` ORDER BY f.rank LIMIT ? OFFSET ?`;
+  bindings.push(limit, offset);
+
+  return { memories: db.prepare(sql).all(...bindings) as Memory[], total };
+}
