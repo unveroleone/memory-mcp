@@ -4,12 +4,14 @@ import { detectProject, loadProjects } from "../projects.js";
 export const addSchema = {
   text: z.string().min(1).describe("The memory text to save"),
   project: z.string().optional().describe("Project key — auto-detected from text if omitted"),
+  tags: z.array(z.string()).optional().describe("Topic tags, e.g. ['architecture', 'auth']"),
   source: z.string().optional().describe("Client identifier, e.g. 'claude-code', 'copilot', 'cursor'"),
 };
 
 export async function handleAddPrompt(args: {
   text: string;
   project?: string;
+  tags?: string[];
   source?: string;
 }) {
   const projects = loadProjects();
@@ -20,6 +22,7 @@ export async function handleAddPrompt(args: {
     {
       text: args.text,
       project: resolvedProject ?? null,
+      tags: args.tags ?? null,
       source: resolvedSource,
     },
     null,

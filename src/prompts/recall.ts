@@ -4,21 +4,26 @@ import { searchMemories } from "../db.js";
 export const recallSchema = {
   query: z.string().min(1).describe("What to search for"),
   project: z.string().optional().describe("Limit results to this project key"),
+  tag: z.string().optional().describe("Narrow results to a specific tag, e.g. 'architecture'"),
   limit: z.number().int().min(1).max(20).optional().describe("Max results, default 10"),
 };
 
 export async function handleRecallPrompt(args: {
   query: string;
   project?: string;
+  tag?: string;
   limit?: number;
 }) {
   const results = searchMemories({
     query: args.query,
     project: args.project,
+    tag: args.tag,
     limit: args.limit ?? 10,
   });
 
-  const scope = args.project ? `project: ${args.project}` : "all projects";
+  const scopeParts = [args.project ? `project: ${args.project}` : "all projects"];
+  if (args.tag) scopeParts.push(`tag: ${args.tag}`);
+  const scope = scopeParts.join(", ");
 
   let body: string;
   if (results.length === 0) {
@@ -26,8 +31,9 @@ export async function handleRecallPrompt(args: {
   } else {
     const lines = results.map((m, i) => {
       const date = new Date(m.created_at).toISOString().slice(0, 10);
-      const tag = m.project ? `[${m.project}]` : "[untagged]";
-      return `${i + 1}. ${tag} ${m.text}\n   saved: ${date} | id: ${m.id}`;
+      const projectLabel = m.project ? `[${m.project}]` : "[untagged]";
+      const tagsLabel = m.tags ? ` {${(JSON.parse(m.tags) as string[]).join(", ")}}` : "";
+      return `${i + 1}. ${projectLabel}${tagsLabel} ${m.text}\n   saved: ${date} | id: ${m.id}`;
     });
     body = `Found ${results.length} result(s) for "${args.query}" in ${scope}:\n\n${lines.join("\n\n")}`;
   }
