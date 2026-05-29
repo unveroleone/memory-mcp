@@ -22,6 +22,7 @@ db.exec(`
     project     TEXT,
     source      TEXT,
     text        TEXT NOT NULL,
+    tags        TEXT,
     metadata    TEXT
   );
 
@@ -42,6 +43,12 @@ db.exec(`
   END;
 `);
 
+// Migrate existing databases that predate the tags column
+const existingCols = (db.pragma("table_info(memories)") as { name: string }[]).map((c) => c.name);
+if (!existingCols.includes("tags")) {
+  db.exec(`ALTER TABLE memories ADD COLUMN tags TEXT DEFAULT NULL`);
+}
+
 export interface Memory {
   id: string;
   created_at: number;
@@ -49,7 +56,12 @@ export interface Memory {
   project: string | null;
   source: string | null;
   text: string;
+  tags: string | null;
   metadata: string | null;
+}
+
+function tagsToJson(tags?: string[] | null): string | null {
+  return tags && tags.length > 0 ? JSON.stringify(tags) : null;
 }
 
 export function insertMemory(params: {
@@ -57,15 +69,17 @@ export function insertMemory(params: {
   text: string;
   project?: string | null;
   source?: string | null;
+  tags?: string[] | null;
   metadata?: object | null;
 }): Memory {
   const now = Date.now();
   const meta = params.metadata ? JSON.stringify(params.metadata) : null;
+  const tags = tagsToJson(params.tags);
 
   db.prepare(`
-    INSERT INTO memories (id, created_at, updated_at, project, source, text, metadata)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(params.id, now, now, params.project ?? null, params.source ?? null, params.text, meta);
+    INSERT INTO memories (id, created_at, updated_at, project, source, text, tags, metadata)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(params.id, now, now, params.project ?? null, params.source ?? null, params.text, tags, meta);
 
   return {
     id: params.id,
@@ -74,6 +88,7 @@ export function insertMemory(params: {
     project: params.project ?? null,
     source: params.source ?? null,
     text: params.text,
+    tags,
     metadata: meta,
   };
 }
@@ -82,6 +97,7 @@ export function searchMemories(params: {
   query: string;
   project?: string;
   source?: string;
+  tag?: string;
   limit?: number;
   since?: number;
 }): Memory[] {
@@ -104,6 +120,10 @@ export function searchMemories(params: {
     sql += ` AND m.source = ?`;
     bindings.push(params.source);
   }
+  if (params.tag) {
+    sql += ` AND EXISTS (SELECT 1 FROM json_each(m.tags) WHERE value = ?)`;
+    bindings.push(params.tag);
+  }
   if (params.since !== undefined) {
     sql += ` AND m.created_at > ?`;
     bindings.push(params.since);
@@ -118,6 +138,7 @@ export function searchMemories(params: {
 export function listMemories(params: {
   project?: string;
   source?: string;
+  tag?: string;
   limit?: number;
   offset?: number;
 }): Memory[] {
@@ -135,6 +156,10 @@ export function listMemories(params: {
     sql += ` AND source = ?`;
     bindings.push(params.source);
   }
+  if (params.tag) {
+    sql += ` AND EXISTS (SELECT 1 FROM json_each(tags) WHERE value = ?)`;
+    bindings.push(params.tag);
+  }
 
   sql += ` ORDER BY created_at DESC LIMIT ? OFFSET ?`;
   bindings.push(limit, offset);
@@ -150,6 +175,7 @@ export function updateMemory(params: {
   id: string;
   text?: string;
   project?: string;
+  tags?: string[];
   metadata?: object;
 }): Memory | null {
   const existing = getMemory(params.id);
@@ -165,6 +191,10 @@ export function updateMemory(params: {
   if (params.project !== undefined) {
     updates.push("project = ?");
     bindings.push(params.project);
+  }
+  if (params.tags !== undefined) {
+    updates.push("tags = ?");
+    bindings.push(tagsToJson(params.tags));
   }
   if (params.metadata !== undefined) {
     updates.push("metadata = ?");

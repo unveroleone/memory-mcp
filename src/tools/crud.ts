@@ -9,6 +9,7 @@ export const updateMemorySchema = z.object({
   id: z.string(),
   text: z.string().optional(),
   project: z.string().optional(),
+  tags: z.array(z.string()).optional().describe("Replace tags with this new list"),
   metadata: z.record(z.unknown()).optional(),
 });
 
@@ -34,6 +35,7 @@ export async function handleUpdateMemory(input: z.infer<typeof updateMemorySchem
     id: input.id,
     text: input.text,
     project: input.project,
+    tags: input.tags,
     metadata: input.metadata as object | undefined,
   });
 

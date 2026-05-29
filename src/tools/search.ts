@@ -5,6 +5,7 @@ export const searchMemoriesSchema = z.object({
   query: z.string().min(1),
   project: z.string().optional(),
   source: z.string().optional(),
+  tag: z.string().optional().describe("Filter by a single tag, e.g. 'architecture'"),
   limit: z.number().int().min(1).max(50).optional(),
   since: z.number().optional(),
 });
@@ -14,6 +15,7 @@ export async function handleSearchMemories(input: z.infer<typeof searchMemoriesS
     query: input.query,
     project: input.project,
     source: input.source,
+    tag: input.tag,
     limit: input.limit,
     since: input.since,
   });

@@ -4,6 +4,7 @@ import { listMemories } from "../db.js";
 export const listMemoriesSchema = z.object({
   project: z.string().optional(),
   source: z.string().optional(),
+  tag: z.string().optional().describe("Filter by a single tag, e.g. 'architecture'"),
   limit: z.number().int().min(1).optional(),
   offset: z.number().int().min(0).optional(),
 });
@@ -12,6 +13,7 @@ export async function handleListMemories(input: z.infer<typeof listMemoriesSchem
   const results = listMemories({
     project: input.project,
     source: input.source,
+    tag: input.tag,
     limit: input.limit,
     offset: input.offset,
   });
