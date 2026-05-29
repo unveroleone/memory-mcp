@@ -5,11 +5,18 @@ export const getMemorySchema = z.object({
   id: z.string(),
 });
 
+const tagsCoerce = z.union([
+  z.array(z.string()),
+  z.string().transform((s) => {
+    try { const p = JSON.parse(s); return Array.isArray(p) ? p : [s]; } catch { return [s]; }
+  }),
+]).optional();
+
 export const updateMemorySchema = z.object({
   id: z.string(),
   text: z.string().optional(),
   project: z.string().optional(),
-  tags: z.array(z.string()).optional().describe("Replace tags with this new list"),
+  tags: tagsCoerce.describe("Replace tags with this new list"),
   metadata: z.record(z.unknown()).optional(),
 });
 

@@ -3,13 +3,21 @@ import { randomUUID } from "crypto";
 import { insertMemory } from "../db.js";
 import { detectProject, loadProjects } from "../projects.js";
 
+// tags accepts array or JSON-encoded string — some MCP clients serialise arrays as strings
+const tagsCoerce = z.union([
+  z.array(z.string()),
+  z.string().transform((s) => {
+    try { const p = JSON.parse(s); return Array.isArray(p) ? p : [s]; } catch { return [s]; }
+  }),
+]).optional();
+
 export const addMemorySchema = z.object({
   text: z.string().min(1),
   project: z.string().optional(),
   source: z.string().describe(
     "Identifier of the AI agent or tool writing this memory. Use your own name: 'claude-code', 'copilot', 'warp', 'cursor', 'gemini', 'chatgpt', or 'dashboard'. Always set this."
   ),
-  tags: z.array(z.string()).optional().describe("Topic tags, e.g. ['architecture', 'auth', 'supabase']"),
+  tags: tagsCoerce.describe("Topic tags, e.g. ['architecture', 'auth', 'supabase']"),
   metadata: z.record(z.unknown()).optional(),
 });
 
