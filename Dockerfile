@@ -1,4 +1,4 @@
-FROM node:20-slim AS builder
+FROM node:24-slim AS builder
 WORKDIR /app
 RUN corepack enable
 COPY package.json pnpm-lock.yaml ./
@@ -7,7 +7,7 @@ COPY tsconfig.json ./
 COPY src/ ./src/
 RUN pnpm run build
 
-FROM node:20-slim
+FROM node:24-slim
 WORKDIR /app
 RUN corepack enable
 COPY package.json pnpm-lock.yaml ./
