@@ -13,10 +13,3 @@ services:
       - PROJECTS_PATH=/app/projects.json
     volumes:
       - ./data:/app/data
-    networks:
-      - default
-      - n8n_default
-
-networks:
-  n8n_default:
-    external: true
