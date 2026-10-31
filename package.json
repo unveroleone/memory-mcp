@@ -1,7 +1,23 @@
 {
   "name": "mcp-memory-server",
   "version": "1.0.0",
-  "description": "Self-hosted MCP memory server with SQLite FTS5",
+  "description": "Self-hosted MCP memory server shared across AI coding tools, backed by SQLite FTS5",
+  "license": "MIT",
+  "author": "Leonardo Ciccone",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/unveroleone/memory-mcp.git"
+  },
+  "homepage": "https://github.com/unveroleone/memory-mcp#readme",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "memory",
+    "sqlite",
+    "fts5",
+    "claude-code",
+    "self-hosted"
+  ],
   "type": "module",
   "main": "dist/index.js",
   "packageManager": "pnpm@10.32.1",
