@@ -93,6 +93,19 @@ export function insertMemory(params: {
   };
 }
 
+// Turns free text into an FTS5 query: every word is a quoted term, words of 3+ chars
+// also match longer forms (prefix), and terms are OR-ed so bm25 ranks entries that
+// match more of the words first. Returns null when no searchable word remains.
+export function buildFtsQuery(query: string): string | null {
+  const words = query
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}_]+/u)
+    .filter((word) => word.length >= 2);
+  const unique = [...new Set(words)].slice(0, 16);
+  if (unique.length === 0) return null;
+  return unique.map((word) => (word.length >= 3 ? `"${word}"*` : `"${word}"`)).join(" OR ");
+}
+
 export function searchMemories(params: {
   query: string;
   project?: string;
@@ -102,7 +115,8 @@ export function searchMemories(params: {
   since?: number;
 }): Memory[] {
   const limit = Math.min(params.limit ?? 10, 50);
-  const safeQuery = `"${params.query.replace(/"/g, "")}"`;
+  const safeQuery = buildFtsQuery(params.query);
+  if (!safeQuery) return [];
 
   let sql = `
     SELECT m.*
@@ -313,7 +327,8 @@ export function searchMemoriesWithCount(params: {
 }): { memories: Memory[]; total: number } {
   const limit = Math.min(params.limit ?? 30, 100);
   const offset = params.offset ?? 0;
-  const safeQuery = `"${params.query.replace(/"/g, "")}"`;
+  const safeQuery = buildFtsQuery(params.query);
+  if (!safeQuery) return { memories: [], total: 0 };
 
   let sql = `
     SELECT m.*

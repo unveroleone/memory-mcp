@@ -21,7 +21,7 @@ export function createServer(): McpServer {
 
   // Tools — model-controlled, AI decides when to call
   server.tool("add_memory", "Add a new memory entry", addMemorySchema.shape, handleAddMemory);
-  server.tool("search_memories", "Search memories using full-text search", searchMemoriesSchema.shape, handleSearchMemories);
+  server.tool("search_memories", "Search memories by keywords. Any word can match (prefix match for 3+ chars, e.g. 'import' finds 'importing'); results are ranked so entries matching more words come first. Natural questions work, distinctive keywords work best.", searchMemoriesSchema.shape, handleSearchMemories);
   server.tool("list_memories", "List memories with optional filters", listMemoriesSchema.shape, handleListMemories);
   server.tool("get_memory", "Get a memory by ID", getMemorySchema.shape, handleGetMemory);
   server.tool("update_memory", "Update an existing memory", updateMemorySchema.shape, handleUpdateMemory);
