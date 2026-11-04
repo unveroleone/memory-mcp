@@ -14,7 +14,7 @@ export async function handleRecallPrompt(args: {
   tag?: string;
   limit?: number;
 }) {
-  const results = searchMemories({
+  const { memories: results } = searchMemories({
     query: args.query,
     project: args.project,
     tag: args.tag,

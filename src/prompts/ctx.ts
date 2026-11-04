@@ -6,7 +6,7 @@ export const ctxSchema = {
 };
 
 export async function handleCtxPrompt(args: { project?: string }) {
-  const memories = listMemories({ project: args.project, limit: 15 });
+  const { memories } = listMemories({ project: args.project, limit: 15 });
 
   const scope = args.project ? `project: ${args.project}` : "all projects (no project filter)";
 

@@ -1,33 +1,31 @@
 import { z } from "zod";
 import { randomUUID } from "crypto";
-import { insertMemory } from "../db.js";
+import { findDuplicate, insertMemory } from "../db.js";
 import { detectProject, loadProjects } from "../projects.js";
-
-// tags accepts array or JSON-encoded string — some MCP clients serialise arrays as strings
-const tagsCoerce = z.union([
-  z.array(z.string()),
-  z.string().transform((s) => {
-    try { const p = JSON.parse(s); return Array.isArray(p) ? p : [s]; } catch { return [s]; }
-  }),
-]).optional();
+import { MAX_TEXT, tagsInput, textResult, toToolMemory, unknownProjectWarning } from "./shared.js";
 
 export const addMemorySchema = z.object({
-  text: z.string().min(1),
-  project: z.string().optional(),
+  text: z.string().trim().min(1).max(MAX_TEXT).describe("The fact to remember: what happened, why, how it was verified, relevant paths or versions, with a date."),
+  project: z.string().trim().min(1).optional().describe("Project key from list_projects. If omitted, it is detected from keywords in the text."),
   source: z.string().describe(
-    "Identifier of the AI agent or tool writing this memory. Use your own name: 'claude-code', 'copilot', 'warp', 'cursor', 'gemini', 'chatgpt', or 'dashboard'. Always set this."
+    "Identifier of the AI agent or tool writing this memory. Use your own name: 'claude-code', 'copilot', 'warp', 'cursor', 'gemini', 'chatgpt', 'hermes', or 'dashboard'. Always set this."
   ),
-  tags: tagsCoerce.describe("Topic tags, e.g. ['architecture', 'auth', 'supabase']"),
+  tags: tagsInput.optional().describe("2 to 5 lowercase topic tags, e.g. ['architecture', 'auth', 'supabase']. Max 10."),
   metadata: z.record(z.unknown()).optional(),
 });
 
 export async function handleAddMemory(input: z.infer<typeof addMemorySchema>) {
   const projects = loadProjects();
-  const project = input.project ?? detectProject(input.text, projects) ?? undefined;
+  const project = input.project ?? detectProject(input.text, projects) ?? null;
 
-  const id = randomUUID();
+  const duplicate = findDuplicate(input.text, project);
+  if (duplicate) {
+    const { text: _text, ...existing } = toToolMemory(duplicate);
+    return textResult({ duplicate: true, message: "An identical memory already exists; nothing was added.", memory: existing });
+  }
+
   const memory = insertMemory({
-    id,
+    id: randomUUID(),
     text: input.text,
     project,
     source: input.source,
@@ -35,12 +33,7 @@ export async function handleAddMemory(input: z.infer<typeof addMemorySchema>) {
     metadata: input.metadata as object | undefined,
   });
 
-  return {
-    content: [
-      {
-        type: "text" as const,
-        text: JSON.stringify({ id: memory.id, project: memory.project, tags: memory.tags }),
-      },
-    ],
-  };
+  const { text: _text, ...created } = toToolMemory(memory);
+  const warning = unknownProjectWarning(memory.project);
+  return textResult({ memory: created, ...(warning ? { warning } : {}) });
 }

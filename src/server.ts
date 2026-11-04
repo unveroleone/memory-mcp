@@ -20,13 +20,13 @@ export function createServer(): McpServer {
   });
 
   // Tools — model-controlled, AI decides when to call
-  server.tool("add_memory", "Add a new memory entry", addMemorySchema.shape, handleAddMemory);
-  server.tool("search_memories", "Search memories by keywords. Any word can match (prefix match for 3+ chars, e.g. 'import' finds 'importing'); results are ranked so entries matching more words come first. Natural questions work, distinctive keywords work best.", searchMemoriesSchema.shape, handleSearchMemories);
-  server.tool("list_memories", "List memories with optional filters", listMemoriesSchema.shape, handleListMemories);
-  server.tool("get_memory", "Get a memory by ID", getMemorySchema.shape, handleGetMemory);
-  server.tool("update_memory", "Update an existing memory", updateMemorySchema.shape, handleUpdateMemory);
-  server.tool("delete_memory", "Delete a memory by ID", deleteMemorySchema.shape, handleDeleteMemory);
-  server.tool("list_projects", "List all configured projects with memory counts", listProjectsSchema.shape, handleListProjects);
+  server.tool("add_memory", "Save a new memory. Skips exact duplicates (returns the existing one) and warns when the project key is not configured. Returns the saved memory without its text.", addMemorySchema.shape, handleAddMemory);
+  server.tool("search_memories", "Search memories by keywords across text, tags and project. Any word can match (prefix match for 3+ chars, e.g. 'import' finds 'importing'; umlauts match plain letters); entries matching more words and tags rank first. Returns { total, has_more, memories } with a relevance score; long texts are truncated, use get_memory for the full text. Combine with project, tags, source and date filters.", searchMemoriesSchema.shape, handleSearchMemories);
+  server.tool("list_memories", "List memories newest first, without a search query. Use for 'what was saved recently' or browsing one project, tag set, source or date range. Returns { total, has_more, memories }; page with offset.", listMemoriesSchema.shape, handleListMemories);
+  server.tool("get_memory", "Get one memory by id with its full text", getMemorySchema.shape, handleGetMemory);
+  server.tool("update_memory", "Update a memory: replace text or project, replace all tags, or add/remove single tags with add_tags/remove_tags", updateMemorySchema.shape, handleUpdateMemory);
+  server.tool("delete_memory", "Delete a memory by id", deleteMemorySchema.shape, handleDeleteMemory);
+  server.tool("list_projects", "List project keys with memory counts, including keys that only exist in the database (marked unconfigured)", listProjectsSchema.shape, handleListProjects);
 
   // Prompts — user-controlled workflow templates, cross-client (Copilot, Warp, Claude Code)
   server.prompt(

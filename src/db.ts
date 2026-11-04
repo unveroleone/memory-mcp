@@ -25,22 +25,6 @@ db.exec(`
     tags        TEXT,
     metadata    TEXT
   );
-
-  CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts
-    USING fts5(text, project, content='memories', content_rowid='rowid');
-
-  CREATE TRIGGER IF NOT EXISTS memories_ai AFTER INSERT ON memories BEGIN
-    INSERT INTO memories_fts(rowid, text, project) VALUES (new.rowid, new.text, new.project);
-  END;
-
-  CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE ON memories BEGIN
-    INSERT INTO memories_fts(memories_fts, rowid, text, project) VALUES ('delete', old.rowid, old.text, old.project);
-    INSERT INTO memories_fts(rowid, text, project) VALUES (new.rowid, new.text, new.project);
-  END;
-
-  CREATE TRIGGER IF NOT EXISTS memories_ad AFTER DELETE ON memories BEGIN
-    INSERT INTO memories_fts(memories_fts, rowid, text, project) VALUES ('delete', old.rowid, old.text, old.project);
-  END;
 `);
 
 // Migrate existing databases that predate the tags column
@@ -48,6 +32,44 @@ const existingCols = (db.pragma("table_info(memories)") as { name: string }[]).m
 if (!existingCols.includes("tags")) {
   db.exec(`ALTER TABLE memories ADD COLUMN tags TEXT DEFAULT NULL`);
 }
+
+// Schema version 1: the FTS index covers text, project and tags (the raw JSON string,
+// which the tokenizer splits into words) and folds diacritics so "uber" finds "über".
+// The index is external content, so dropping and rebuilding it never touches memories.
+const SCHEMA_VERSION = 1;
+if ((db.pragma("user_version", { simple: true }) as number) < SCHEMA_VERSION) {
+  db.transaction(() => {
+    db.exec(`
+      DROP TRIGGER IF EXISTS memories_ai;
+      DROP TRIGGER IF EXISTS memories_au;
+      DROP TRIGGER IF EXISTS memories_ad;
+      DROP TABLE IF EXISTS memories_fts;
+
+      CREATE VIRTUAL TABLE memories_fts USING fts5(
+        text, project, tags,
+        content='memories', content_rowid='rowid',
+        tokenize='unicode61 remove_diacritics 2'
+      );
+      INSERT INTO memories_fts(memories_fts) VALUES ('rebuild');
+
+      CREATE TRIGGER memories_ai AFTER INSERT ON memories BEGIN
+        INSERT INTO memories_fts(rowid, text, project, tags) VALUES (new.rowid, new.text, new.project, new.tags);
+      END;
+
+      CREATE TRIGGER memories_au AFTER UPDATE ON memories BEGIN
+        INSERT INTO memories_fts(memories_fts, rowid, text, project, tags) VALUES ('delete', old.rowid, old.text, old.project, old.tags);
+        INSERT INTO memories_fts(rowid, text, project, tags) VALUES (new.rowid, new.text, new.project, new.tags);
+      END;
+
+      CREATE TRIGGER memories_ad AFTER DELETE ON memories BEGIN
+        INSERT INTO memories_fts(memories_fts, rowid, text, project, tags) VALUES ('delete', old.rowid, old.text, old.project, old.tags);
+      END;
+    `);
+    db.pragma(`user_version = ${SCHEMA_VERSION}`);
+  })();
+}
+
+export const MAX_TAGS = 10;
 
 export interface Memory {
   id: string;
@@ -58,6 +80,21 @@ export interface Memory {
   text: string;
   tags: string | null;
   metadata: string | null;
+}
+
+export interface ScoredMemory extends Memory {
+  score: number;
+  snippet: string;
+}
+
+export function parseTags(tags: string | null): string[] {
+  if (!tags) return [];
+  try {
+    const parsed = JSON.parse(tags);
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    return [];
+  }
 }
 
 function tagsToJson(tags?: string[] | null): string | null {
@@ -93,6 +130,11 @@ export function insertMemory(params: {
   };
 }
 
+export function findDuplicate(text: string, project: string | null): Memory | null {
+  return (db.prepare(`SELECT * FROM memories WHERE text = ? AND project IS ? LIMIT 1`)
+    .get(text, project) as Memory | undefined) ?? null;
+}
+
 // Turns free text into an FTS5 query: every word is a quoted term, words of 3+ chars
 // also match longer forms (prefix), and terms are OR-ed so bm25 ranks entries that
 // match more of the words first. Returns null when no searchable word remains.
@@ -106,83 +148,107 @@ export function buildFtsQuery(query: string): string | null {
   return unique.map((word) => (word.length >= 3 ? `"${word}"*` : `"${word}"`)).join(" OR ");
 }
 
-export function searchMemories(params: {
-  query: string;
+export interface MemoryFilters {
   project?: string;
+  projects?: string[];
   source?: string;
   tag?: string;
-  limit?: number;
+  tags?: string[];
+  tagMode?: "any" | "all";
   since?: number;
-}): Memory[] {
-  const limit = Math.min(params.limit ?? 10, 50);
-  const safeQuery = buildFtsQuery(params.query);
-  if (!safeQuery) return [];
-
-  let sql = `
-    SELECT m.*
-    FROM memories_fts f
-    JOIN memories m ON m.rowid = f.rowid
-    WHERE memories_fts MATCH ?
-  `;
-  const bindings: (string | number)[] = [safeQuery];
-
-  if (params.project) {
-    sql += ` AND m.project = ?`;
-    bindings.push(params.project);
-  }
-  if (params.source) {
-    sql += ` AND m.source = ?`;
-    bindings.push(params.source);
-  }
-  if (params.tag) {
-    sql += ` AND EXISTS (SELECT 1 FROM json_each(m.tags) WHERE value = ?)`;
-    bindings.push(params.tag);
-  }
-  if (params.since !== undefined) {
-    sql += ` AND m.created_at > ?`;
-    bindings.push(params.since);
-  }
-
-  sql += ` ORDER BY f.rank LIMIT ?`;
-  bindings.push(limit);
-
-  return db.prepare(sql).all(...bindings) as Memory[];
+  until?: number;
 }
 
-export function listMemories(params: {
-  project?: string;
-  source?: string;
-  tag?: string;
-  limit?: number;
-  offset?: number;
-}): Memory[] {
-  const limit = params.limit ?? 20;
-  const offset = params.offset ?? 0;
-
-  let sql = `SELECT * FROM memories WHERE 1=1`;
+// Builds the shared WHERE clauses for search and list. `alias` is the memories table alias.
+function buildFilters(filters: MemoryFilters, alias: string): { sql: string; bindings: (string | number)[] } {
+  const col = (name: string) => (alias ? `${alias}.${name}` : name);
+  let sql = "";
   const bindings: (string | number)[] = [];
 
-  if (params.project) {
-    sql += ` AND project = ?`;
-    bindings.push(params.project);
+  const projects = [...(filters.project ? [filters.project] : []), ...(filters.projects ?? [])];
+  if (projects.length > 0) {
+    sql += ` AND ${col("project")} IN (${projects.map(() => "?").join(", ")})`;
+    bindings.push(...projects);
   }
-  if (params.source) {
-    sql += ` AND source = ?`;
-    bindings.push(params.source);
+  if (filters.source) {
+    sql += ` AND ${col("source")} = ?`;
+    bindings.push(filters.source);
   }
-  if (params.tag) {
-    sql += ` AND EXISTS (SELECT 1 FROM json_each(tags) WHERE value = ?)`;
-    bindings.push(params.tag);
+  const tags = [...(filters.tag ? [filters.tag] : []), ...(filters.tags ?? [])];
+  if (tags.length > 0) {
+    if (filters.tagMode === "all") {
+      for (const tag of tags) {
+        sql += ` AND EXISTS (SELECT 1 FROM json_each(${col("tags")}) WHERE value = ?)`;
+        bindings.push(tag);
+      }
+    } else {
+      sql += ` AND EXISTS (SELECT 1 FROM json_each(${col("tags")}) WHERE value IN (${tags.map(() => "?").join(", ")}))`;
+      bindings.push(...tags);
+    }
   }
+  if (filters.since !== undefined) {
+    sql += ` AND ${col("created_at")} >= ?`;
+    bindings.push(filters.since);
+  }
+  if (filters.until !== undefined) {
+    sql += ` AND ${col("created_at")} <= ?`;
+    bindings.push(filters.until);
+  }
+  return { sql, bindings };
+}
 
-  sql += ` ORDER BY created_at DESC LIMIT ? OFFSET ?`;
-  bindings.push(limit, offset);
+// Column weights for bm25: text, project, tags. Tags are curated keywords, so they weigh most.
+const BM25 = "bm25(memories_fts, 1.0, 0.5, 3.0)";
 
-  return db.prepare(sql).all(...bindings) as Memory[];
+export function searchMemories(params: MemoryFilters & {
+  query: string;
+  limit?: number;
+  offset?: number;
+}): { memories: ScoredMemory[]; total: number } {
+  const limit = Math.min(Math.max(params.limit ?? 10, 1), 100);
+  const offset = Math.max(params.offset ?? 0, 0);
+  const safeQuery = buildFtsQuery(params.query);
+  if (!safeQuery) return { memories: [], total: 0 };
+
+  const filters = buildFilters(params, "m");
+  const from = `
+    FROM memories_fts
+    JOIN memories m ON m.rowid = memories_fts.rowid
+    WHERE memories_fts MATCH ?${filters.sql}
+  `;
+  const bindings = [safeQuery, ...filters.bindings];
+
+  const total = (db.prepare(`SELECT COUNT(*) AS n ${from}`).get(...bindings) as { n: number }).n;
+  const rows = db.prepare(`
+    SELECT m.*,
+      -${BM25} AS score,
+      snippet(memories_fts, 0, '', '', ' ... ', 40) AS snippet
+    ${from}
+    ORDER BY ${BM25}
+    LIMIT ? OFFSET ?
+  `).all(...bindings, limit, offset) as ScoredMemory[];
+
+  return { memories: rows, total };
+}
+
+export function listMemories(params: MemoryFilters & {
+  limit?: number;
+  offset?: number;
+}): { memories: Memory[]; total: number } {
+  const limit = Math.min(Math.max(params.limit ?? 20, 1), 100);
+  const offset = Math.max(params.offset ?? 0, 0);
+  const filters = buildFilters(params, "");
+  const where = `WHERE 1=1${filters.sql}`;
+
+  const total = (db.prepare(`SELECT COUNT(*) AS n FROM memories ${where}`).get(...filters.bindings) as { n: number }).n;
+  const memories = db.prepare(`SELECT * FROM memories ${where} ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?`)
+    .all(...filters.bindings, limit, offset) as Memory[];
+
+  return { memories, total };
 }
 
 export function getMemory(id: string): Memory | null {
-  return db.prepare(`SELECT * FROM memories WHERE id = ?`).get(id) as Memory | null;
+  return (db.prepare(`SELECT * FROM memories WHERE id = ?`).get(id) as Memory | undefined) ?? null;
 }
 
 export function updateMemory(params: {
@@ -190,35 +256,45 @@ export function updateMemory(params: {
   text?: string;
   project?: string;
   tags?: string[];
+  addTags?: string[];
+  removeTags?: string[];
   metadata?: object;
 }): Memory | null {
-  const existing = getMemory(params.id);
-  if (!existing) return null;
+  return db.transaction(() => {
+    const existing = getMemory(params.id);
+    if (!existing) return null;
 
-  const updates: string[] = ["updated_at = ?"];
-  const bindings: (string | number | null)[] = [Date.now()];
+    const updates: string[] = ["updated_at = ?"];
+    const bindings: (string | number | null)[] = [Date.now()];
 
-  if (params.text !== undefined) {
-    updates.push("text = ?");
-    bindings.push(params.text);
-  }
-  if (params.project !== undefined) {
-    updates.push("project = ?");
-    bindings.push(params.project);
-  }
-  if (params.tags !== undefined) {
-    updates.push("tags = ?");
-    bindings.push(tagsToJson(params.tags));
-  }
-  if (params.metadata !== undefined) {
-    updates.push("metadata = ?");
-    bindings.push(JSON.stringify(params.metadata));
-  }
+    if (params.text !== undefined) {
+      updates.push("text = ?");
+      bindings.push(params.text);
+    }
+    if (params.project !== undefined) {
+      updates.push("project = ?");
+      bindings.push(params.project);
+    }
+    if (params.tags !== undefined || params.addTags || params.removeTags) {
+      let tags = params.tags ?? parseTags(existing.tags);
+      if (params.addTags) tags = [...tags, ...params.addTags];
+      if (params.removeTags) {
+        const remove = new Set(params.removeTags);
+        tags = tags.filter((tag) => !remove.has(tag));
+      }
+      updates.push("tags = ?");
+      bindings.push(tagsToJson([...new Set(tags)].slice(0, MAX_TAGS)));
+    }
+    if (params.metadata !== undefined) {
+      updates.push("metadata = ?");
+      bindings.push(JSON.stringify(params.metadata));
+    }
 
-  bindings.push(params.id);
-  db.prepare(`UPDATE memories SET ${updates.join(", ")} WHERE id = ?`).run(...bindings);
+    bindings.push(params.id);
+    db.prepare(`UPDATE memories SET ${updates.join(", ")} WHERE id = ?`).run(...bindings);
 
-  return getMemory(params.id);
+    return getMemory(params.id);
+  })();
 }
 
 export function deleteMemory(id: string): boolean {
@@ -232,18 +308,6 @@ export function countByProject(): Record<string, number> {
   ).all() as { project: string | null; count: number }[];
 
   return Object.fromEntries(rows.map((r) => [r.project ?? "untagged", r.count]));
-}
-
-export function countMemories(params: {
-  project?: string;
-  tag?: string;
-}): number {
-  let sql = `SELECT COUNT(*) as n FROM memories WHERE 1=1`;
-  const bindings: (string | number)[] = [];
-  if (params.project) { sql += ` AND project = ?`; bindings.push(params.project); }
-  if (params.tag) { sql += ` AND EXISTS (SELECT 1 FROM json_each(tags) WHERE value = ?)`; bindings.push(params.tag); }
-  const row = db.prepare(sql).get(...bindings) as { n: number };
-  return row.n;
 }
 
 export interface ProjectStat {
@@ -316,36 +380,4 @@ export function getStats(): StatsData {
   `).all() as { tag: string; count: number }[];
 
   return { total, by_source, by_day, top_tags };
-}
-
-export function searchMemoriesWithCount(params: {
-  query: string;
-  project?: string;
-  tag?: string;
-  limit?: number;
-  offset?: number;
-}): { memories: Memory[]; total: number } {
-  const limit = Math.min(params.limit ?? 30, 100);
-  const offset = params.offset ?? 0;
-  const safeQuery = buildFtsQuery(params.query);
-  if (!safeQuery) return { memories: [], total: 0 };
-
-  let sql = `
-    SELECT m.*
-    FROM memories_fts f
-    JOIN memories m ON m.rowid = f.rowid
-    WHERE memories_fts MATCH ?
-  `;
-  const bindings: (string | number)[] = [safeQuery];
-
-  if (params.project) { sql += ` AND m.project = ?`; bindings.push(params.project); }
-  if (params.tag) { sql += ` AND EXISTS (SELECT 1 FROM json_each(m.tags) WHERE value = ?)`; bindings.push(params.tag); }
-
-  const countSql = `SELECT COUNT(*) as n FROM (${sql}) t`;
-  const total = (db.prepare(countSql).get(...bindings) as { n: number }).n;
-
-  sql += ` ORDER BY f.rank LIMIT ? OFFSET ?`;
-  bindings.push(limit, offset);
-
-  return { memories: db.prepare(sql).all(...bindings) as Memory[], total };
 }

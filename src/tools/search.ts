@@ -1,31 +1,30 @@
 import { z } from "zod";
 import { searchMemories } from "../db.js";
+import { DEFAULT_MAX_CHARS, filterSchema, textResult, toFilters, toToolMemory } from "./shared.js";
 
 export const searchMemoriesSchema = z.object({
-  query: z.string().min(1),
-  project: z.string().optional(),
-  source: z.string().optional(),
-  tag: z.string().optional().describe("Filter by a single tag, e.g. 'architecture'"),
-  limit: z.number().int().min(1).max(50).optional(),
-  since: z.number().optional(),
+  query: z.string().min(1).max(500).describe("Keywords or a question, e.g. 'plex import sonarr'. Any word can match; more matching words rank higher."),
+  ...filterSchema,
+  limit: z.number().int().min(1).max(50).optional().describe("Max results, default 10"),
+  offset: z.number().int().min(0).optional().describe("Skip this many results for paging, default 0"),
+  max_chars: z.number().int().min(100).max(10000).optional().describe(`Truncate each text to this many characters, default ${DEFAULT_MAX_CHARS}. Use get_memory for the full text.`),
 });
 
 export async function handleSearchMemories(input: z.infer<typeof searchMemoriesSchema>) {
-  const results = searchMemories({
+  const offset = input.offset ?? 0;
+  const { memories, total } = searchMemories({
     query: input.query,
-    project: input.project,
-    source: input.source,
-    tag: input.tag,
-    limit: input.limit,
-    since: input.since,
+    ...toFilters(input),
+    limit: input.limit ?? 10,
+    offset,
   });
+  const maxChars = input.max_chars ?? DEFAULT_MAX_CHARS;
 
-  return {
-    content: [
-      {
-        type: "text" as const,
-        text: JSON.stringify(results),
-      },
-    ],
-  };
+  return textResult({
+    total,
+    offset,
+    returned: memories.length,
+    has_more: offset + memories.length < total,
+    memories: memories.map((m) => toToolMemory(m, maxChars)),
+  });
 }

@@ -5,12 +5,11 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { createServer } from "./server.js";
 import {
   listMemories,
-  countMemories,
   getMemory,
   insertMemory,
   updateMemory,
   deleteMemory,
-  searchMemoriesWithCount,
+  searchMemories,
   getProjectStats,
   getStats,
   type Memory as DbMemory,
@@ -74,16 +73,14 @@ async function startHttpServer(): Promise<void> {
       const project = req.query.project as string | undefined;
       const search = req.query.search as string | undefined;
       const tag = req.query.tags as string | undefined;
-      const limit = Math.min(Number(req.query.limit ?? 30), 100);
-      const offset = Number(req.query.offset ?? 0);
+      const source = req.query.source as string | undefined;
+      const limit = Math.min(Number(req.query.limit) || 30, 100);
+      const offset = Number(req.query.offset) || 0;
+      const filters = { project, tag, source };
 
-      if (search) {
-        const { memories, total } = searchMemoriesWithCount({ query: search, project, tag, limit, offset });
-        return res.json({ memories: memories.map(dbMemoryToApi), total });
-      }
-
-      const memories = listMemories({ project, tag, limit, offset });
-      const total = countMemories({ project, tag });
+      const { memories, total } = search
+        ? searchMemories({ query: search, ...filters, limit, offset })
+        : listMemories({ ...filters, limit, offset });
       res.json({ memories: memories.map(dbMemoryToApi), total });
     } catch (err) {
       res.status(500).json({ error: String(err) });

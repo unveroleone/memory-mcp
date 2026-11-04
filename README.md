@@ -136,15 +136,26 @@ The model decides when to call these.
 
 | Tool | Description |
 |------|-------------|
-| `add_memory` | Save a memory. `text` and `source` are required; `project`, `tags` and `metadata` are optional. |
-| `search_memories` | Full-text search with `project`, `source`, `tag` and `since` filters. Up to 50 results. |
-| `list_memories` | Newest first, with `project`, `source`, `tag`, `limit` and `offset`. |
-| `get_memory` | Fetch one memory by ID. |
-| `update_memory` | Change text, project or tags. |
+| `add_memory` | Save a memory. `text` and `source` are required; `project`, `tags` and `metadata` are optional. An exact duplicate (same text and project) is not saved again; the existing memory is returned instead. A project key that is not in `projects.json` is saved with a warning. |
+| `search_memories` | Keyword search over text, tags and project, ranked by relevance. Takes the filters below plus `limit` (max 50), `offset` and `max_chars`. |
+| `list_memories` | Newest first, with the filters below plus `limit` (max 50), `offset` and `max_chars`. |
+| `get_memory` | Fetch one memory by ID with its full text. |
+| `update_memory` | Replace text or project, replace all `tags`, or change single tags with `add_tags` / `remove_tags`. |
 | `delete_memory` | Delete a memory by ID. |
-| `list_projects` | Configured projects with memory counts. |
+| `list_projects` | Projects with memory counts. Keys that exist only in the database are listed with `unconfigured: true`. |
 
 `source` identifies the writing tool (`claude-code`, `copilot`, `cursor`, ...). It is required so you can later tell where a memory came from.
+
+**Filters** for `search_memories` and `list_memories`:
+
+| Filter | Description |
+|--------|-------------|
+| `project` / `projects` | One project key, or a list of keys (any of them). |
+| `source` | Only memories from one writing tool. |
+| `tag` / `tags` | One tag, or a list. `tag_mode: "any"` (default) needs one match, `"all"` needs every tag. |
+| `since` / `until` | Creation time range, inclusive. ISO date (`2026-10-01`) or Unix timestamp in seconds or milliseconds. |
+
+**Search behaviour.** Each word of the query is matched on its own, and words of three or more characters also match longer forms (`import` finds `importing`). Matches in tags weigh most, then text, then project. Diacritics are folded, so `uber` finds `über`. Results come back as `{ total, offset, returned, has_more, memories }`. Each memory has parsed `tags`, ISO dates and, for search, a relevance `score`. Texts longer than `max_chars` (default 800) are cut and marked `truncated`; search then adds a `match` excerpt around the hit. Use `get_memory` for the full text.
 
 ### Prompts
 
@@ -169,7 +180,7 @@ For dashboards and scripts. Same bearer token as `/mcp`.
 | Method and path | Description |
 |-----------------|-------------|
 | `GET /health` | Liveness check, no auth. |
-| `GET /api/memories` | Query params: `project`, `search`, `tags`, `limit` (max 100), `offset`. Returns `{ memories, total }`. |
+| `GET /api/memories` | Query params: `project`, `search`, `tags` (one tag), `source`, `limit` (max 100), `offset`. Returns `{ memories, total }`. |
 | `GET /api/memories/:id` | One memory. |
 | `POST /api/memories` | Body: `{ content, project?, tags?, source? }`. |
 | `PUT /api/memories/:id` | Body: `{ content?, project?, tags? }`. |
@@ -220,10 +231,9 @@ Put a `.mcp.json` in a repository to tell the assistant which project to use the
 
 ## Limitations
 
-- **Search is a phrase match.** The query is wrapped in quotes before it reaches FTS5, so `tunnel cloudflare` finds that exact phrase, not memories containing both words anywhere. Search for single words or short phrases.
-- **Keyword search only.** The schema has no embeddings. "Similar meaning" queries will not match.
+- **Keyword search only.** The schema has no embeddings. "Similar meaning" queries will not match, and there is no stemming: `config` finds `configuration` by prefix, but `configured` does not find `configuring`.
 - **One user.** A single bearer token guards everything and there is no per-user separation.
-- **No deduplication or expiry.** Memories stay until you delete them.
+- **Only exact duplicates are caught.** A memory that says the same thing in other words is saved again. Nothing expires; memories stay until you delete them.
 - **The bearer token is the only protection.** Use a long random value and TLS.
 
 ## Development
