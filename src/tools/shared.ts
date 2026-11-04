@@ -32,6 +32,12 @@ export const tagsInput = stringList(tagItem).pipe(z.array(z.string()).max(MAX_TA
 
 export const filterListInput = stringList(z.string().trim().min(1)).pipe(z.array(z.string()).max(20));
 
+// Clients with a stale tool list sometimes send numbers as strings; accept both.
+export function intInput(min: number, max?: number) {
+  const base = z.coerce.number().int().min(min);
+  return max === undefined ? base : base.max(max);
+}
+
 // Accepts ISO dates ("2026-10-01", "2026-10-01T12:00:00Z") or Unix timestamps in ms or seconds.
 export const timeInput = z.union([z.number(), z.string()]).transform((value, ctx) => {
   if (typeof value === "number") return value < 1e12 ? value * 1000 : value;
