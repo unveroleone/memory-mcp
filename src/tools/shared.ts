@@ -1,6 +1,5 @@
 import { z } from "zod";
-import { MAX_TAGS, parseTags, type Memory, type ScoredMemory, type MemoryFilters } from "../db.js";
-import { loadProjects } from "../projects.js";
+import { MAX_TAGS, countByProject, parseTags, type Memory, type ScoredMemory, type MemoryFilters } from "../db.js";
 
 export const MAX_TEXT = 10000;
 const MAX_TAG_LENGTH = 40;
@@ -106,11 +105,15 @@ export function toToolMemory(m: Memory | ScoredMemory, maxChars?: number) {
   return result;
 }
 
-export function unknownProjectWarning(project: string | null | undefined): string | undefined {
+// A new project key needs no entry in projects.json. Only a key that differs from
+// an existing database key by case, "-", "_" or spaces (Strimr vs strimr) gets a note.
+export function similarProjectNote(project: string | null | undefined): string | undefined {
   if (!project) return undefined;
-  const known = Object.keys(loadProjects());
-  if (known.includes(project)) return undefined;
-  return `Project '${project}' is not in projects.json (configured: ${known.join(", ")}). Saved anyway; check for a typo.`;
+  const norm = (key: string) => key.toLowerCase().replace(/[-_\s]/g, "");
+  const target = norm(project);
+  const similar = Object.keys(countByProject()).filter((key) => key !== project && norm(key) === target);
+  if (similar.length === 0) return undefined;
+  return `Saved under '${project}', but '${similar.join("', '")}' already exists and looks like the same project.`;
 }
 
 export function textResult(value: unknown, isError = false) {

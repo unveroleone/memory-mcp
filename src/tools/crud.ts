@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { getMemory, updateMemory, deleteMemory } from "../db.js";
-import { MAX_TEXT, tagsInput, textResult, toToolMemory, unknownProjectWarning } from "./shared.js";
+import { MAX_TEXT, tagsInput, textResult, toToolMemory, similarProjectNote } from "./shared.js";
 
 export const getMemorySchema = z.object({
   id: z.string().describe("Memory id from search_memories or list_memories"),
@@ -39,8 +39,8 @@ export async function handleUpdateMemory(input: z.infer<typeof updateMemorySchem
 
   if (!updated) return textResult({ error: "Memory not found", id: input.id }, true);
 
-  const warning = input.project !== undefined ? unknownProjectWarning(updated.project) : undefined;
-  return textResult({ memory: toToolMemory(updated), ...(warning ? { warning } : {}) });
+  const note = input.project !== undefined ? similarProjectNote(updated.project) : undefined;
+  return textResult({ memory: toToolMemory(updated), ...(note ? { note } : {}) });
 }
 
 export async function handleDeleteMemory(input: z.infer<typeof deleteMemorySchema>) {

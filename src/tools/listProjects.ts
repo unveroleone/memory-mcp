@@ -4,8 +4,8 @@ import { countByProject } from "../db.js";
 
 export const listProjectsSchema = z.object({});
 
-// Configured projects plus any project keys that only exist in the database,
-// so memories saved under an unconfigured key stay discoverable.
+// Every project key in the database. A key in projects.json only adds a description
+// and keywords.
 export function projectOverview() {
   const projects = loadProjects();
   const counts = countByProject();
@@ -16,17 +16,16 @@ export function projectOverview() {
     keywords: def.keywords,
     count: counts[key] ?? 0,
   }));
-  const unconfigured = Object.entries(counts)
+  const others = Object.entries(counts)
     .filter(([key]) => !(key in projects))
     .map(([key, count]) => ({
       key,
-      description: key === "untagged" ? "Memories saved without a project" : "Not in projects.json; only exists in the database",
+      description: key === "untagged" ? "Memories saved without a project" : "",
       keywords: [] as string[],
       count,
-      unconfigured: true,
     }));
 
-  return [...configured, ...unconfigured];
+  return [...configured, ...others];
 }
 
 export async function handleListProjects(_input: z.infer<typeof listProjectsSchema>) {

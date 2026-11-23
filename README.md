@@ -136,13 +136,13 @@ The model decides when to call these.
 
 | Tool | Description |
 |------|-------------|
-| `add_memory` | Save a memory. `text` and `source` are required; `project`, `tags` and `metadata` are optional. An exact duplicate (same text and project) is not saved again; the existing memory is returned instead. A project key that is not in `projects.json` is saved with a warning. |
+| `add_memory` | Save a memory. `text` and `source` are required; `project`, `tags` and `metadata` are optional. An exact duplicate (same text and project) is not saved again; the existing memory is returned instead. Any project key works; a new key starts a new project. If the key differs from an existing one only by case, `-`, `_` or spaces, the result carries a `note` naming that key. |
 | `search_memories` | Keyword search over text, tags and project, ranked by relevance. Takes the filters below plus `limit` (max 50), `offset` and `max_chars`. |
 | `list_memories` | Newest first, with the filters below plus `limit` (max 50), `offset` and `max_chars`. |
 | `get_memory` | Fetch one memory by ID with its full text. |
 | `update_memory` | Replace text or project, replace all `tags`, or change single tags with `add_tags` / `remove_tags`. |
 | `delete_memory` | Delete a memory by ID. |
-| `list_projects` | Projects with memory counts. Keys that exist only in the database are listed with `unconfigured: true`. |
+| `list_projects` | Projects with memory counts. Every key in the database is listed; `projects.json` only adds a description and keywords. |
 
 `source` identifies the writing tool (`claude-code`, `copilot`, `cursor`, ...). It is required so you can later tell where a memory came from.
 
@@ -203,7 +203,7 @@ The Docker Compose file sets `DB_PATH` and `PROJECTS_PATH` for the container. `d
 
 ### Projects and auto-tagging
 
-`projects.json` maps a project key to a description and a keyword list:
+`projects.json` is optional. A project key does not need an entry: any key you save under becomes a project. An entry only adds a description and keywords that `add_memory` uses to guess the project when none is given:
 
 ```json
 {

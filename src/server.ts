@@ -26,7 +26,7 @@ export function createServer(): McpServer {
   server.tool("get_memory", "Get one memory by id with its full text", getMemorySchema.shape, handleGetMemory);
   server.tool("update_memory", "Update a memory: replace text or project, replace all tags, or add/remove single tags with add_tags/remove_tags", updateMemorySchema.shape, handleUpdateMemory);
   server.tool("delete_memory", "Delete a memory by id", deleteMemorySchema.shape, handleDeleteMemory);
-  server.tool("list_projects", "List project keys with memory counts, including keys that only exist in the database (marked unconfigured)", listProjectsSchema.shape, handleListProjects);
+  server.tool("list_projects", "List every project key with its memory count; projects.json only adds a description and keywords", listProjectsSchema.shape, handleListProjects);
 
   // Prompts — user-controlled workflow templates, cross-client (Copilot, Warp, Claude Code)
   server.prompt(

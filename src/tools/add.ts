@@ -2,7 +2,7 @@ import { z } from "zod";
 import { randomUUID } from "crypto";
 import { findDuplicate, insertMemory } from "../db.js";
 import { detectProject, loadProjects } from "../projects.js";
-import { MAX_TEXT, tagsInput, textResult, toToolMemory, unknownProjectWarning } from "./shared.js";
+import { MAX_TEXT, tagsInput, textResult, toToolMemory, similarProjectNote } from "./shared.js";
 
 export const addMemorySchema = z.object({
   text: z.string().trim().min(1).max(MAX_TEXT).describe("The fact to remember: what happened, why, how it was verified, relevant paths or versions, with a date."),
@@ -34,6 +34,6 @@ export async function handleAddMemory(input: z.infer<typeof addMemorySchema>) {
   });
 
   const { text: _text, ...created } = toToolMemory(memory);
-  const warning = unknownProjectWarning(memory.project);
-  return textResult({ memory: created, ...(warning ? { warning } : {}) });
+  const note = similarProjectNote(memory.project);
+  return textResult({ memory: created, ...(note ? { note } : {}) });
 }
